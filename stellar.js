@@ -1,16 +1,52 @@
 require('dotenv').config();
+const { Keypair, TransactionBuilder, Networks, Operation, BASE_FEE } = require('@stellar/stellar-sdk');
+const { broadcastTransaction, fetchAccount } = require('./src/services/broadcaster');
+const { retry } = require('./src/utils/retry');
+
+function getServer() {
+  const { StellarSdk } = require('@stellar/stellar-sdk');
+  const network = process.env.STELLAR_NETWORK || 'testnet';
+  const serverUrl = network === 'mainnet'
+    ? 'https://horizon.stellar.org'
+    : 'https://horizon-testnet.stellar.org';
+  return new StellarSdk.Horizon.Server(serverUrl);
+}
 
 async function registerTaskOnChain(githubId) {
-  const { STELLAR_SECRET_KEY, STELLAR_NETWORK } = process.env;
+  const secretKey = process.env.STELLAR_SECRET_KEY;
+  if (!secretKey) {
+    throw new Error('STELLAR_SECRET_KEY environment variable is not set');
+  }
 
-  console.log('[stellar] Loading keys...');
-  console.log(`[stellar] Network: ${STELLAR_NETWORK || 'testnet'}`);
-  console.log(`[stellar] Secret key loaded: ${STELLAR_SECRET_KEY ? 'yes' : 'no (missing)'}`);
+  const network = process.env.STELLAR_NETWORK || 'testnet';
+  const networkPassphrase = network === 'mainnet' ? Networks.PUBLIC : Networks.TESTNET;
+  const server = getServer();
+  const keypair = Keypair.fromSecret(secretKey);
+  const publicKey = keypair.publicKey();
 
-  console.log(`[stellar] Compiling transaction for GitHub PR #${githubId}...`);
-  console.log(`[stellar] Transaction envelope built: { op: "manageData", key: "vero:pr:${githubId}", value: "registered" }`);
-  console.log(`[stellar] Transaction submitted (simulated). Hash: 0x${Buffer.from(`pr-${githubId}`).toString('hex')}`);
-  console.log(`[stellar] PR #${githubId} successfully registered on-chain.`);
+  console.log(`[stellar] Loading account ${publicKey} on ${network}...`);
+
+  const account = await fetchAccount(server, publicKey);
+
+  const transaction = new TransactionBuilder(account, {
+    fee: BASE_FEE,
+    networkPassphrase,
+  })
+    .addOperation(Operation.manageData({
+      name: `vero:pr:${githubId}`,
+      value: `registered`,
+    }))
+    .setTimeout(30)
+    .build();
+
+  transaction.sign(keypair);
+
+  console.log(`[stellar] Submitting transaction for PR #${githubId}...`);
+
+  const result = await broadcastTransaction(server, transaction);
+
+  console.log(`[stellar] PR #${githubId} successfully registered on-chain. Hash: ${result.hash}`);
+  return result;
 }
 
 module.exports = { registerTaskOnChain };
