@@ -1,1 +1,1 @@
-// Logger configurations module
+module.exports = require('./src/logger');

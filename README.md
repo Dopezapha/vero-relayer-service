@@ -131,6 +131,9 @@ vero-relayer-service/
 
 | Variable | Required | Description |
 |---|---|---|
+| `LOG_LEVEL` | No | Pino log level, defaults to `info` |
+| `LOG_REDACT_REMOVE` | No | Set to `true` to remove redacted fields instead of replacing with `[Redacted]` |
+| `ENABLE_HTTP_REQUEST_LOGS` | No | Set to `false` to disable automatic request completion logs |
 | `STELLAR_SECRET_KEY` | Yes | Signing key for the relayer account |
 | `STELLAR_NETWORK` | No | `testnet` (default) or `mainnet` |
 | `REDIS_HOST` | Yes | Redis host for BullMQ |
