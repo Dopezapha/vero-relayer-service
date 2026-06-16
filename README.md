@@ -23,14 +23,11 @@ POST /github-webhook
       event worker calls registerTaskOnChain(pr.number)
                 |
                 v
-      estimate Stellar fee from RPC getFeeStats p75
-                |
-                v
       Stellar transaction submitted
       (manageData: vero:pr:<number>)
 ```
 
-When a contributor's PR is merged and carries the `wave-contribution` label, the relayer captures the PR number, persists an event job in Redis, and returns `202 Accepted`. A separate BullMQ worker drains the queue, estimates the current Stellar fee, and writes a `manageData` operation to Stellar.
+When a contributor's PR is merged and carries the `wave-contribution` label, the relayer captures the PR number, persists an event job in Redis, and returns `202 Accepted`. A separate BullMQ worker drains the queue and writes a `manageData` operation to Stellar.
 
 ---
 
@@ -44,7 +41,7 @@ npm install
 **2. Configure environment**
 ```bash
 cp .env.example .env
-# Fill in STELLAR_SECRET_KEY, REDIS_PASSWORD, and STELLAR_RPC_URL
+# Fill in STELLAR_SECRET_KEY and REDIS_PASSWORD
 ```
 
 **3. Start Redis with password protection**
@@ -95,20 +92,37 @@ Qualifying events return `202 Accepted` with `{ "ok": true, "pr": <number>, "que
 
 ---
 
+## The Wave Program
+
+The Wave Program works by having maintainers create scoped issues that contributors pick up during sprint cycles. Each sprint has a fixed window, typically two weeks, and a defined set of issues tagged `wave-contribution`. When a contributor's PR for one of those issues is merged, this service queues the event and records the contribution on-chain through the worker.
+
+### Types of work posted each sprint
+
+| Category | Description |
+|---|---|
+| **Bug fixes** | Reproducible defects with a clear acceptance criterion, such as a failing test that must pass or a described broken behavior that must be resolved. |
+| **New features** | Bounded feature additions scoped to a single module. Maintainers write the interface contract; contributors implement it. |
+| **Documentation** | Missing or outdated docs, inline code comments, architecture diagrams, and usage examples. |
+| **Testing** | New unit or integration tests for uncovered paths, edge cases, or regression scenarios. |
+| **Refactors** | Isolated clean-up tasks with no behavior change. |
+
+Maintainers label qualifying issues `wave-contribution` before the sprint opens. Contributors fork, implement, and open a PR against `main`. On merge, this service fires automatically.
+
+---
+
 ## Project Structure
 
 ```
 vero-relayer-service/
-|-- index.js                    # Express server + webhook route
-|-- stellar.js                  # Blockchain registration utility
-|-- src/
-|   |-- queue/                  # Redis/BullMQ queue configuration
-|   |-- services/               # Stellar fee estimation
-|   `-- workers/                # Event queue worker
-|-- scripts/
-|   `-- mock-webhook.js         # Local simulation script
-|-- .env.example                # Required environment variables
-`-- package.json
+├── index.js                    # Express server + webhook route
+├── stellar.js                  # Blockchain registration utility
+├── src/
+│   ├── queue/                  # Redis/BullMQ queue configuration
+│   └── workers/                # Event queue worker
+├── scripts/
+│   └── mock-webhook.js         # Local simulation script
+├── .env.example                # Required environment variables
+└── package.json
 ```
 
 ---
@@ -119,13 +133,6 @@ vero-relayer-service/
 |---|---|---|
 | `STELLAR_SECRET_KEY` | Yes | Signing key for the relayer account |
 | `STELLAR_NETWORK` | No | `testnet` (default) or `mainnet` |
-| `STELLAR_RPC_URL` | No | Stellar RPC URL used for fee stats |
-| `STELLAR_BASE_FEE` | No | Fallback fee in stroops, defaults to `100` |
-| `STELLAR_MIN_FEE` | No | Minimum fee in stroops, defaults to `100` |
-| `STELLAR_MAX_FEE` | No | Maximum fee cap in stroops, defaults to `10000` |
-| `STELLAR_FEE_PERCENTILE` | No | Fee percentile target, defaults to `p75` |
-| `STELLAR_FEE_MULTIPLIER` | No | Decimal multiplier applied before caps, defaults to `1` |
-| `STELLAR_FEE_CACHE_MS` | No | Optional short fee cache window, defaults to `0` |
 | `REDIS_HOST` | Yes | Redis host for BullMQ |
 | `REDIS_PORT` | Yes | Redis port for BullMQ |
 | `REDIS_USERNAME` | No | Redis ACL username, when required by the provider |
@@ -146,7 +153,6 @@ vero-relayer-service/
 | `npm run simulate` | Fire a mock webhook at localhost:3000 |
 | `COUNT=125 npm run simulate` | Inject 125 mock webhooks |
 | `npm test` | Run native Node.js tests |
-| `npm run typecheck` | Type-check the fee engine |
 
 ---
 
@@ -166,14 +172,3 @@ vero-relayer-service/
    ```
 7. Watch the worker logs for `status=started`, `status=completed`, and retry `status=failed` entries. Logs include job ID, event type, and attempt number, but do not include Redis passwords or request headers.
 8. Stop the worker during a burst and restart it to confirm persisted jobs continue draining from Redis.
-
----
-
-## Manual Fee Verification
-
-1. Set `.env` with `STELLAR_RPC_URL`, `STELLAR_BASE_FEE`, `STELLAR_MIN_FEE`, `STELLAR_MAX_FEE`, `STELLAR_FEE_PERCENTILE=p75`, and `STELLAR_FEE_MULTIPLIER=1`.
-2. Start the worker with `npm run worker:events`.
-3. Send a qualifying webhook with `npm run simulate`.
-4. Confirm logs include a fee line like `[fee] selected=<stroops> percentile=p75 min=<min> max=<max> source=<source>` before the transaction envelope log.
-5. Simulate high-fee stats in tests with `npm test`; the fee engine tests mock `getFeeStats` p75 values and verify fee increases and max caps.
-6. Lower `STELLAR_MAX_FEE` in a local `.env` and repeat a simulated high-fee test path to confirm the selected fee never exceeds the configured cap.

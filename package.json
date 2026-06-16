@@ -10,9 +10,7 @@
     "dev": "nodemon index.js",
     "worker:events": "node src/workers/event-worker.js",
     "simulate": "node scripts/mock-webhook.js",
-    "test": "node --test",
-    "typecheck": "tsc --noEmit"
-
+    "test": "node --test"
     "simulate": "node scripts/mock-webhook.js",
     "test": "jest"
 

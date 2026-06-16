@@ -1,5 +1,4 @@
 const express = require('express');
-
 const {
   buildGitHubPullRequestEventPayload,
   buildMetadataFromRequest,
@@ -12,7 +11,6 @@ function createApp(options = {}) {
   const app = express();
 
   app.use(express.json());
-
 const { registerTaskOnChain } = require('./stellar');
 const { verifySignature } = require('./src/middleware/auth');
 
@@ -26,14 +24,12 @@ app.use(express.json({
 app.post('/github-webhook', verifySignature, async (req, res) => {
   const { action, pull_request: pr } = req.body;
 
-
   app.post('/github-webhook', async (req, res) => {
     const { action, pull_request: pr } = req.body;
 
     if (action !== 'closed' || !pr?.merged) {
       return res.status(200).json({ skipped: true });
     }
-
 
     const hasLabel = pr.labels?.some(l => l.name === 'wave-contribution');
     if (!hasLabel) {
@@ -72,7 +68,6 @@ module.exports = {
   createApp,
   startServer
 };
-
   const start = Date.now();
   console.log(`[webhook] PR #${pr.number} merged with wave-contribution label`);
   try {
