@@ -7,6 +7,7 @@ const {
 } = require('./src/queue');
 const { logger } = require('./src/logger');
 const { verifySignature } = require('./src/middleware/auth');
+const { initializeTracing, requestTracingMiddleware } = require('./src/tracing');
 const { getDiagnosticReport, startHeartbeatService } = require('./src/services/diagnostics');
 
 function createApp(options = {}) {
@@ -14,6 +15,7 @@ function createApp(options = {}) {
   const app = express();
   const verifyWebhook = process.env.WEBHOOK_SECRET ? verifySignature : (req, res, next) => next();
 
+  app.use(requestTracingMiddleware());
   app.use(express.json({
     verify: (req, res, buf) => {
       req.rawBody = buf;
@@ -72,6 +74,7 @@ function createApp(options = {}) {
 
 function startServer() {
   validateRedisConfig();
+  initializeTracing();
 
   const port = process.env.PORT || 3000;
   const app = createApp();
