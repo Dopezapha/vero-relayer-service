@@ -33,7 +33,7 @@ function createApp(options = {}) {
       return res.status(200).json({ skipped: true });
     }
 
-    const hasLabel = pr.labels?.some(l => l.name === 'wave-contribution');
+    const hasLabel = pr.labels?.some(label => label.name === 'wave-contribution');
     if (!hasLabel) {
       return res.status(200).json({ skipped: true, reason: 'no wave-contribution label' });
     }
@@ -59,6 +59,9 @@ function startServer() {
 
   const port = process.env.PORT || 3000;
   const app = createApp();
+  const server = app.listen(port, () => {
+    logger.info({ port }, 'server listening');
+  });
 
   return app.listen(port, () => logger.info({ port }, 'Server listening on port'));
 }

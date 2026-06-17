@@ -10,6 +10,8 @@
  * (Stellar enforces a hard limit of 100 ops per transaction).
  */
 
+const { logger } = require('../logger');
+
 type FlushFn = (ids: number[]) => Promise<void>;
 
 import { logger } from '../logger';

@@ -1,6 +1,7 @@
 require('dotenv').config();
 
 const { UnrecoverableError, Worker } = require('bullmq');
+const { logger } = require('../logger');
 const { registerTaskOnChain } = require('../../stellar');
 const { EVENT_TYPES } = require('../queue/types');
 const {

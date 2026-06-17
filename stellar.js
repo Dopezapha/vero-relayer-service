@@ -19,10 +19,9 @@ async function submitTransaction(transaction) {
     throw new Error('STELLAR_SECRET_KEY environment variable is not set');
   }
 
-  const network = process.env.STELLAR_NETWORK || 'testnet';
+  const network = STELLAR_NETWORK || 'testnet';
   const networkPassphrase = network === 'mainnet' ? Networks.PUBLIC : Networks.TESTNET;
-  const server = getServer();
-  const keypair = Keypair.fromSecret(secretKey);
+  const keypair = Keypair.fromSecret(STELLAR_SECRET_KEY);
   const publicKey = keypair.publicKey();
 
   logger.info({ publicKey, network }, '[stellar] Loading account...');
@@ -83,7 +82,6 @@ async function registerBatchOnChain(githubIds) {
     batchSize: githubIds.length
   }, '[stellar] Building batch transaction...');
 
-  // One manageData op per PR — packed into a single transaction envelope
   for (const id of githubIds) {
     logger.info({ githubId: id }, '[stellar]   op: manageData key=vero:pr:<id> value=registered');
   }
