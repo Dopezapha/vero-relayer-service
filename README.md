@@ -149,6 +149,31 @@ vero-relayer-service/
 
 ---
 
+## Logging
+
+All runtime logs are structured JSON emitted by a single global [Pino](https://getpino.io)
+instance (`src/logger.js`), so they are queryable by any log viewer. Sensitive fields
+(`password`, `authorization`, `privateKey`, `STELLAR_SECRET_KEY`, ...) are redacted by
+path before output.
+
+On-chain transaction activity goes through a dedicated secure transaction logger
+(`src/services/transaction-logger.js`). It binds every line to `component: "transaction"`
+and a stable `txEvent` (`started`, `submitting`, `confirmed`, `retrying`, `failed`) plus a
+consistent schema (`githubId`, `account`, `txHash`, `network`, `fee`), making the full
+transaction lifecycle trivial to filter and trace. On top of the path-based redaction it
+adds **value-level** scrubbing that the path redactor cannot do:
+
+- Stellar secret seeds (`S...`) are replaced with `[Redacted]` anywhere they appear —
+  including inside free-text error messages — so a leaked seed can never reach the stream.
+- Stellar account ids (`G...`) are masked to a `GABCDE…234567` prefix/suffix form, keeping
+  logs correlatable per-account without exposing the full identifier.
+
+```jsonc
+{"level":"info","component":"transaction","txEvent":"confirmed","githubId":42,"txHash":"...","message":"..."}
+```
+
+---
+
 ## Scripts
 
 | Command | Description |

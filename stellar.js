@@ -2,7 +2,7 @@ require('dotenv').config();
 const { Keypair, TransactionBuilder, Networks, Operation } = require('@stellar/stellar-sdk');
 const { broadcastTransaction, fetchAccount } = require('./src/services/broadcaster');
 const { estimateStellarFee } = require('./src/services/fee-engine');
-const { logger } = require('./src/logger');
+const { transactionLogger } = require('./src/services/transaction-logger');
 
 const { rpcFactory } = require('./src/services');
 
@@ -17,8 +17,9 @@ async function submitTransaction(transaction) {
   const keypair = Keypair.fromSecret(secretKey);
   const publicKey = keypair.publicKey();
   const server = rpcFactory.getHorizonServer();
+  const txLog = transactionLogger.child({ githubId: transaction.githubId, network });
 
-  logger.info({ publicKey, network }, '[stellar] Loading account...');
+  txLog.started({ account: publicKey }, '[stellar] Loading account...');
 
   const account = await fetchAccount(server, publicKey);
 
@@ -35,10 +36,15 @@ async function submitTransaction(transaction) {
 
   tx.sign(keypair);
 
-  logger.info({ githubId: transaction.githubId }, '[stellar] Submitting transaction for PR...');
+  txLog.submitting({ account: publicKey, fee: transaction.fee }, '[stellar] Submitting transaction for PR...');
 
-  const result = await broadcastTransaction(server, tx);
-  return result;
+  try {
+    const result = await broadcastTransaction(server, tx);
+    return result;
+  } catch (error) {
+    txLog.failed({ account: publicKey }, error, '[stellar] Transaction submission failed');
+    throw error;
+  }
 }
 
 async function registerTaskOnChain(githubId, options = {}) {
@@ -47,7 +53,7 @@ async function registerTaskOnChain(githubId, options = {}) {
 
   const fee = await estimateFee();
 
-  logger.info({ githubId, fee }, '[stellar] Compiling transaction for GitHub PR...');
+  transactionLogger.started({ githubId, fee }, '[stellar] Compiling transaction for GitHub PR...');
 
   const result = await submit({
     githubId,
@@ -57,7 +63,7 @@ async function registerTaskOnChain(githubId, options = {}) {
     value: 'registered'
   });
 
-  logger.info({ githubId, hash: result.hash }, '[stellar] Transaction submitted. PR successfully registered on-chain.');
+  transactionLogger.confirmed({ githubId, txHash: result.hash }, '[stellar] Transaction submitted. PR successfully registered on-chain.');
   return result;
 }
 
@@ -70,18 +76,19 @@ async function registerTaskOnChain(githubId, options = {}) {
 async function registerBatchOnChain(githubIds) {
   const { STELLAR_SECRET_KEY, STELLAR_NETWORK } = process.env;
 
-  logger.info({
+  const batchLog = transactionLogger.child({
     network: STELLAR_NETWORK || 'testnet',
-    secretKeyLoaded: !!STELLAR_SECRET_KEY,
     batchSize: githubIds.length
-  }, '[stellar] Building batch transaction...');
+  });
+
+  batchLog.started({ secretKeyLoaded: !!STELLAR_SECRET_KEY }, '[stellar] Building batch transaction...');
 
   for (const id of githubIds) {
-    logger.info({ githubId: id }, '[stellar]   op: manageData key=vero:pr:<id> value=registered');
+    batchLog.submitting({ githubId: id }, '[stellar]   op: manageData key=vero:pr:<id> value=registered');
   }
 
   const hash = '0x' + Buffer.from(`batch-${githubIds.join(',')}`).toString('hex').slice(0, 16);
-  logger.info({ hash, batchSize: githubIds.length }, '[stellar] Batch transaction submitted (simulated).');
+  batchLog.confirmed({ txHash: hash }, '[stellar] Batch transaction submitted (simulated).');
 }
 
 module.exports = { registerTaskOnChain, registerBatchOnChain };
