@@ -1,6 +1,9 @@
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const { registerTaskOnChain } = require('../stellar');
+const { Keypair } = require('@stellar/stellar-sdk');
+
+process.env.STELLAR_SECRET_KEY = Keypair.random().secret();
 
 test('registerTaskOnChain estimates fee before transaction submission', async () => {
   const calls = [];
@@ -16,6 +19,13 @@ test('registerTaskOnChain estimates fee before transaction submission', async ()
       estimateFee: async () => {
         calls.push('estimateFee');
         return '777';
+      },
+      fetchAccount: async () => {
+        const { Account } = require('@stellar/stellar-sdk');
+        return new Account(Keypair.random().publicKey(), '1');
+      },
+      broadcastTransaction: async () => {
+        return { hash: '0xbroadcast' };
       },
       submitTransaction: async transaction => {
         calls.push(`submit:${transaction.fee}`);
@@ -42,6 +52,13 @@ test('registerTaskOnChain does not submit when fee estimation throws a configura
         estimateFee: async () => {
           calls.push('estimateFee');
           throw new Error('invalid fee config');
+        },
+        fetchAccount: async () => {
+          const { Account } = require('@stellar/stellar-sdk');
+          return new Account(Keypair.random().publicKey(), '1');
+        },
+        broadcastTransaction: async () => {
+          return { hash: '0xbroadcast' };
         },
         submitTransaction: async () => {
           calls.push('submit');

@@ -3,14 +3,7 @@ const { Keypair, TransactionBuilder, Networks, Operation, BASE_FEE } = require('
 const { broadcastTransaction, fetchAccount } = require('./src/services/broadcaster');
 const { retry } = require('./src/utils/retry');
 
-function getServer() {
-  const { StellarSdk } = require('@stellar/stellar-sdk');
-  const network = process.env.STELLAR_NETWORK || 'testnet';
-  const serverUrl = network === 'mainnet'
-    ? 'https://horizon.stellar.org'
-    : 'https://horizon-testnet.stellar.org';
-  return new StellarSdk.Horizon.Server(serverUrl);
-}
+const { rpcFactory } = require('./src/services');
 
 const { estimateStellarFee } = require('./src/services/fee-engine');
 
@@ -24,21 +17,23 @@ async function registerTaskOnChain(githubId, options = {}) {
   const { STELLAR_SECRET_KEY, STELLAR_NETWORK } = process.env;
   const estimateFee = options.estimateFee || estimateStellarFee;
   const submit = options.submitTransaction || submitTransaction;
-async function registerTaskOnChain(githubId) {
-  const secretKey = process.env.STELLAR_SECRET_KEY;
+  const fetchAcc = options.fetchAccount || fetchAccount;
+  const broadcastTx = options.broadcastTransaction || broadcastTransaction;
+
+  const secretKey = STELLAR_SECRET_KEY;
   if (!secretKey) {
     throw new Error('STELLAR_SECRET_KEY environment variable is not set');
   }
 
-  const network = process.env.STELLAR_NETWORK || 'testnet';
+  const network = STELLAR_NETWORK || 'testnet';
   const networkPassphrase = network === 'mainnet' ? Networks.PUBLIC : Networks.TESTNET;
-  const server = getServer();
+  const server = rpcFactory.getHorizonServer();
   const keypair = Keypair.fromSecret(secretKey);
   const publicKey = keypair.publicKey();
 
   console.log(`[stellar] Loading account ${publicKey} on ${network}...`);
 
-  const account = await fetchAccount(server, publicKey);
+  const account = await fetchAcc(server, publicKey);
 
   const transaction = new TransactionBuilder(account, {
     fee: BASE_FEE,
@@ -55,7 +50,7 @@ async function registerTaskOnChain(githubId) {
 
   console.log(`[stellar] Submitting transaction for PR #${githubId}...`);
 
-  const result = await broadcastTransaction(server, transaction);
+  const broadcastResult = await broadcastTx(server, transaction);
 
   const fee = await estimateFee();
 
