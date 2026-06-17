@@ -1,6 +1,5 @@
 const { logger } = require('../logger');
 const { retry } = require('../utils/retry');
-const { logger } = require('../logger');
 
 async function broadcastTransaction(server, transaction) {
   return retry(

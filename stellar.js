@@ -4,14 +4,7 @@ const { broadcastTransaction, fetchAccount } = require('./src/services/broadcast
 const { estimateStellarFee } = require('./src/services/fee-engine');
 const { logger } = require('./src/logger');
 
-function getServer() {
-  const { Horizon } = require('@stellar/stellar-sdk');
-  const network = process.env.STELLAR_NETWORK || 'testnet';
-  const serverUrl = network === 'mainnet'
-    ? 'https://horizon.stellar.org'
-    : 'https://horizon-testnet.stellar.org';
-  return new Horizon.Server(serverUrl);
-}
+const { rpcFactory } = require('./src/services');
 
 async function submitTransaction(transaction) {
   const secretKey = process.env.STELLAR_SECRET_KEY;
@@ -19,10 +12,11 @@ async function submitTransaction(transaction) {
     throw new Error('STELLAR_SECRET_KEY environment variable is not set');
   }
 
-  const network = STELLAR_NETWORK || 'testnet';
+  const network = process.env.STELLAR_NETWORK || 'testnet';
   const networkPassphrase = network === 'mainnet' ? Networks.PUBLIC : Networks.TESTNET;
-  const keypair = Keypair.fromSecret(STELLAR_SECRET_KEY);
+  const keypair = Keypair.fromSecret(secretKey);
   const publicKey = keypair.publicKey();
+  const server = rpcFactory.getHorizonServer();
 
   logger.info({ publicKey, network }, '[stellar] Loading account...');
 

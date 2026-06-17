@@ -14,8 +14,6 @@ const { logger } = require('../logger');
 
 type FlushFn = (ids: number[]) => Promise<void>;
 
-import { logger } from '../logger';
-
 const MAX_BATCH_SIZE = 50; // hard cap — Stellar max is 100 ops
 const WINDOW_MS = 5_000;   // 5-second aggregation window
 

@@ -12,7 +12,6 @@ const {
 } = require('../queue/redis');
 const { createEventQueue } = require('../queue/event-queue');
 const { createCleanupJob } = require('../queue/cleanup');
-const { logger } = require('../logger');
 const {
   vero_events_processed_total,
   queue_latency_seconds
