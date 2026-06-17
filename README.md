@@ -143,6 +143,34 @@ vero-relayer-service/
 | `REDIS_TLS` | No | Set to `true` to enable TLS |
 | `EVENT_QUEUE_NAME` | No | Defaults to `vero:event-processing` |
 | `EVENT_QUEUE_CONCURRENCY` | No | Worker concurrency, defaults to `5` |
+| `OTEL_SERVICE_NAME` | No | Service name reported to the tracing backend |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | No | OTLP endpoint for exporting traces, such as Jaeger or Grafana |
+| `OTEL_SDK_DISABLED` | No | Set to `true` to disable tracing at startup |
+
+---
+
+## Logging
+
+All runtime logs are structured JSON emitted by a single global [Pino](https://getpino.io)
+instance (`src/logger.js`), so they are queryable by any log viewer. Sensitive fields
+(`password`, `authorization`, `privateKey`, `STELLAR_SECRET_KEY`, ...) are redacted by
+path before output.
+
+On-chain transaction activity goes through a dedicated secure transaction logger
+(`src/services/transaction-logger.js`). It binds every line to `component: "transaction"`
+and a stable `txEvent` (`started`, `submitting`, `confirmed`, `retrying`, `failed`) plus a
+consistent schema (`githubId`, `account`, `txHash`, `network`, `fee`), making the full
+transaction lifecycle trivial to filter and trace. On top of the path-based redaction it
+adds **value-level** scrubbing that the path redactor cannot do:
+
+- Stellar secret seeds (`S...`) are replaced with `[Redacted]` anywhere they appear —
+  including inside free-text error messages — so a leaked seed can never reach the stream.
+- Stellar account ids (`G...`) are masked to a `GABCDE…234567` prefix/suffix form, keeping
+  logs correlatable per-account without exposing the full identifier.
+
+```jsonc
+{"level":"info","component":"transaction","txEvent":"confirmed","githubId":42,"txHash":"...","message":"..."}
+```
 
 ---
 
@@ -175,3 +203,110 @@ vero-relayer-service/
    ```
 7. Watch the worker logs for `status=started`, `status=completed`, and retry `status=failed` entries. Logs include job ID, event type, and attempt number, but do not include Redis passwords or request headers.
 8. Stop the worker during a burst and restart it to confirm persisted jobs continue draining from Redis.
+
+---
+
+## Automated Queue Cleanup
+
+To prevent unbounded queue growth, the worker schedules a [node-cron](https://www.npmjs.com/package/node-cron)
+job (`src/queue/cleanup.js`) that runs daily at midnight UTC and purges stale jobs
+from Redis in bounded batches (at most `1000` jobs per state per run, via BullMQ's
+`queue.clean`):
+
+| Job state | Default grace | Rationale |
+|---|---|---|
+| `completed` | 1 day | Main driver of unbounded growth — BullMQ retains completed jobs indefinitely by default |
+| `failed` | 7 days | Kept longer for inspection, then purged |
+
+Each run emits audited log lines per state (`queue cleanup started` / `completed`) plus
+a `queue cleanup summary` with the removed counts (`{ completed, failed, total }`). A
+failed cleanup run is logged and swallowed so it never crashes the worker. Grace periods,
+batch limit, schedule, and the set of purged states are all overridable via
+`createCleanupJob` options.
+
+---
+
+## M-of-N Multi-Signature Admin Architecture
+
+The `contracts/vero-admin` Soroban contract replaces the previous single-key admin model with a threshold-based multisig scheme, eliminating the "God-key" vulnerability.
+
+### How it works
+
+```
+Admin A  ──propose_register_task(pr=42)──► proposal stored (1/M approvals)
+Admin B  ──approve(action_hash)──────────► 2/M approvals → threshold reached → executed
+Admin C  ──approve(action_hash)──────────► AlreadyExecuted ✗
+Rogue    ──propose_register_task(pr=1)───► Unauthorized ✗
+```
+
+### Configuration
+
+| Parameter   | Storage key   | Description                                               |
+|-------------|---------------|-----------------------------------------------------------|
+| `admins`    | `DataKey::Admins`    | Ordered `Vec<Address>` of N authorised signers    |
+| `threshold` | `DataKey::Threshold` | M — minimum approvals needed to execute an action |
+| `nonce`     | `DataKey::Nonce`     | Auto-incremented after each execution             |
+
+### Initialisation
+
+```bash
+# Deploy and initialise with 3 admins, requiring 2 approvals (2-of-3)
+soroban contract invoke \
+  --id <CONTRACT_ID> \
+  --source admin_a \
+  -- initialize \
+  --admins '[<ADDR_A>, <ADDR_B>, <ADDR_C>]' \
+  --threshold 2
+```
+
+### Admin workflow
+
+```bash
+# 1. Any admin proposes an action (auto-counts as 1 approval)
+HASH=$(soroban contract invoke \
+  --id <CONTRACT_ID> --source admin_a \
+  -- propose_register_task --proposer <ADDR_A> --pr 42)
+
+# 2. A second admin approves — threshold met → executes
+soroban contract invoke \
+  --id <CONTRACT_ID> --source admin_b \
+  -- approve --approver <ADDR_B> --action_hash "$HASH"
+```
+
+### Replay prevention
+
+Every proposal hash is derived as:
+
+```
+sha256( nonce_le_bytes || action_tag || action_payload )
+```
+
+The `nonce` increments atomically on each successful execution. Any previously broadcast-but-rejected signature payload yields a hash that maps to no live proposal, making replay attacks impossible.
+
+### Accepted action types
+
+| Variant              | Description                                  |
+|----------------------|----------------------------------------------|
+| `RegisterTask(pr)`   | Record a merged PR number on-chain           |
+| `PurgeTask(pr)`      | Remove a previously registered PR            |
+| `UpdateThreshold(m)` | Change the approval quorum                   |
+| `UpdateAdmins(list)` | Replace the entire admin registry atomically |
+
+### Contract layout
+
+```
+contracts/vero-admin/
+├── Cargo.toml
+└── src/
+    ├── lib.rs      # #[contract] entry points + unit tests
+    ├── admin.rs    # multisig core logic
+    ├── types.rs    # MultisigAction, AdminAction, DataKey
+    └── errors.rs   # AdminError codes
+```
+
+### Running contract tests
+
+```bash
+cd contracts/vero-admin
+cargo test
+```
